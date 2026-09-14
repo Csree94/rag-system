@@ -12,6 +12,7 @@ the ingestion module will provide real document chunks.
 """
 
 import logging
+import os
 from typing import Optional
 
 from sqlalchemy import create_engine
@@ -28,56 +29,39 @@ logger = logging.getLogger(__name__)
 # Sample documents for testing
 SAMPLE_DOCUMENTS = [
     {
-        "document_id": "doc_wonders",
-        "title": "Seven Wonders of the Ancient World",
-        "chunks": [
-            "The Great Pyramid of Giza is the oldest and largest of the three pyramids in the Giza pyramid complex.",
-            "The Hanging Gardens of Babylon were said to have been built by Nebuchadnezzar II for his median wife.",
-            "The Statue of Zeus at Olympia was a giant seated figure of the god Zeus, made by the Greek sculptor Phidias.",
-            "The Temple of Artemis at Ephesus was a Greek temple dedicated to the goddess Artemis.",
-            "The Mausoleum at Halicarnassus was a tomb built for Mausolus, a Persian satrap.",
-            "The Colossus of Rhodes was a statue of the Greek sun-god Helios.",
-            "The Lighthouse of Alexandria was a tower built by the Ptolemaic Kingdom.",
-        ],
-    },
-    {
-        "document_id": "doc_planets",
-        "title": "Solar System Facts",
-        "chunks": [
-            "Mercury is the smallest planet in our solar system and the closest to the Sun.",
-            "Venus is the second planet from the Sun and is often called Earth's twin due to similar size.",
-            "Earth is the third planet from the Sun and the only astronomical object known to harbor life.",
-            "Mars is the fourth planet from the Sun and is known as the Red Planet due to iron oxide.",
-            "Jupiter is the fifth planet from the Sun and the largest planet in our solar system.",
-            "Saturn is the sixth planet from the Sun, known for its prominent ring system.",
-            "Uranus is the seventh planet from the Sun, rotating on its side with an axial tilt of 98 degrees.",
-            "Neptune is the eighth and farthest known planet from the Sun in our solar system.",
-        ],
-    },
-    {
-        "document_id": "doc_geography",
-        "title": "World Geography",
+        "document_id": "doc_france",
+        "title": "France and Paris",
         "chunks": [
             "France is a country in Western Europe with a population of approximately 67 million people.",
             "The capital of France is Paris, known for the Eiffel Tower and Louvre Museum.",
-            "Germany is a country in Central Europe with a population of approximately 83 million.",
-            "The capital of Germany is Berlin, known for its historical significance and modern culture.",
-            "Japan is an island country in East Asia with a population of approximately 125 million.",
-            "The capital of Japan is Tokyo, which is the most populous metropolitan area in the world.",
-            "Brazil is the largest country in South America and the fifth largest in the world.",
-            "The capital of Brazil is Brasilia, a planned city built in the 1960s.",
+            "Paris is the most populous city in France and serves as the country's major cultural and economic center.",
         ],
     },
     {
-        "document_id": "doc_science",
-        "title": "Basic Science Facts",
+        "document_id": "doc_python",
+        "title": "Python Programming",
         "chunks": [
-            "Water freezes at 0 degrees Celsius or 32 degrees Fahrenheit at standard atmospheric pressure.",
-            "The speed of light in vacuum is approximately 299,792 kilometers per second.",
-            "The chemical symbol for water is H2O, consisting of two hydrogen atoms and one oxygen atom.",
-            "Gravity on Earth causes objects to accelerate at approximately 9.8 meters per second squared.",
-            "The human body contains approximately 60% water in adult males.",
-            "DNA stands for deoxyribonucleic acid and contains the genetic instructions for life.",
+            "Python is a high-level, interpreted programming language known for its simple and readable syntax.",
+            "Python supports multiple programming paradigms including object-oriented, functional, and procedural programming.",
+            "The Python Package Index (PyPI) hosts over 400,000 packages for web development, data science, and more.",
+        ],
+    },
+    {
+        "document_id": "doc_kerala",
+        "title": "Kerala",
+        "chunks": [
+            "Kerala is a state on the Malabar Coast of India, known for its tropical greenery and backwaters.",
+            "Kerala has the highest literacy rate among Indian states at approximately 96 percent.",
+            "The capital of Kerala is Thiruvananthapuram, also known as Trivandrum.",
+        ],
+    },
+    {
+        "document_id": "doc_postgres",
+        "title": "PostgreSQL",
+        "chunks": [
+            "PostgreSQL is an advanced open-source relational database management system with a focus on extensibility and standards compliance.",
+            "PostgreSQL supports advanced data types including JSON, arrays, and geospatial data via the PostGIS extension.",
+            "The pgvector extension for PostgreSQL enables storage and querying of vector embeddings for AI and machine learning applications.",
         ],
     },
 ]
@@ -96,7 +80,9 @@ def seed_sample_data(db_url: Optional[str] = None) -> int:
         Number of chunks seeded.
     """
     settings = get_settings()
-    db_url = db_url or settings.DATABASE_URL
+    # Settings is a plain class that doesn't read from os.environ,
+    # so read DATABASE_URL directly (load_dotenv() already populated it).
+    db_url = db_url or os.environ.get("DATABASE_URL", "") or settings.DATABASE_URL
 
     if not db_url or db_url.startswith("postgresql://user:"):
         logger.error("Database URL not configured. Set DATABASE_URL in .env")

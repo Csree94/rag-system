@@ -1,23 +1,27 @@
+import os
 from dotenv import load_dotenv
 from pathlib import Path
 from functools import lru_cache
 
-load_dotenv()
+# Load .env relative to the backend/ directory (two levels up from this file)
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(_env_path)
 
 
 class Settings:
     """Application settings loaded from environment variables."""
 
-    # Database
-    DATABASE_URL: str = ""
+    def __init__(self) -> None:
+        # Database
+        self.DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
 
-    # Embedding
-    EMBEDDING_MODEL: str = "sentence-transformers"
-    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
-    EMBEDDING_DIMENSION: int = 384  # Default for all-MiniLM-L6-v2
+        # Embedding
+        self.EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "sentence-transformers")
+        self.EMBEDDING_MODEL_NAME: str = os.environ.get("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+        self.EMBEDDING_DIMENSION: int = int(os.environ.get("EMBEDDING_DIMENSION", "384"))
 
-    # OpenRouter (optional)
-    OPENROUTER_API_KEY: str = ""
+        # OpenRouter (optional)
+        self.OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
 
     @property
     def use_openrouter(self) -> bool:

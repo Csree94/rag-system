@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -6,7 +7,6 @@ from sqlalchemy import pool
 from alembic import context
 
 from app.core.database import Base
-from app.core.config import get_settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -39,10 +39,12 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    # Use DATABASE_URL from environment if not set in alembic.ini
-    settings = get_settings()
-    if settings.DATABASE_URL:
-        config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+    # Use DATABASE_URL from environment if not set in alembic.ini.
+    # config.py calls load_dotenv() at import time, so the env var is in os.environ.
+    # The Settings class is a plain class (not BaseSettings) so we read directly.
+    database_url = os.environ.get("DATABASE_URL", "")
+    if database_url:
+        config.set_main_option("sqlalchemy.url", database_url)
 
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
