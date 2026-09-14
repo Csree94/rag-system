@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,7 +34,7 @@ class RetrievalService:
             List of retrieved chunks with similarity scores.
 
         Raises:
-            ValueError: If the question is empty.
+            ValueError: If the question is empty or embedding dimension mismatches.
             RuntimeError: If embedding or search fails.
         """
         if not question or not question.strip():
@@ -44,9 +43,19 @@ class RetrievalService:
         try:
             # Step 1: Generate query embedding
             query_embedding = self.embedding_service.embed(question)
-            logger.debug(f"Generated query embedding with {len(query_embedding)} dimensions")
+            logger.debug(
+                f"Generated query embedding with {len(query_embedding)} dimensions"
+            )
 
-            # Step 2: Perform vector similarity search using pgvector
+            # Step 2: Validate embedding dimension matches the model's expected dimension
+            expected_dim = self.embedding_service.embedding_dim
+            if len(query_embedding) != expected_dim:
+                raise ValueError(
+                    f"Query embedding dimension {len(query_embedding)} "
+                    f"does not match expected dimension {expected_dim}"
+                )
+
+            # Step 3: Perform vector similarity search using pgvector
             results = self._vector_search(
                 query_embedding=query_embedding,
                 top_k=top_k,
@@ -71,39 +80,51 @@ class RetrievalService:
         """
         Perform vector similarity search using pgvector.
 
-        Uses L2 distance (Euclidean) for similarity.
-        pgvector returns distance; we convert to similarity score.
-        """
-        # Convert query embedding to numpy array for pgvector
-        import numpy as np
-        query_vector = np.array(query_embedding, dtype=np.float32)
+        Uses cosine distance (<=> operator) for similarity, which is the
+        standard metric for text embeddings produced by sentence-transformers.
 
-        # Build the query with pgvector's <-> operator for L2 distance
+        pgvector's cosine_distance returns a value between 0 (identical) and
+        2 (opposite). We convert to cosine_similarity = 1 - cosine_distance,
+        giving a range of -1 to 1 where 1 means identical.
+
+        Args:
+            query_embedding: The query vector as a list of floats.
+            top_k: Maximum number of results to return.
+            min_similarity: Minimum cosine similarity score to include.
+
+        Returns:
+            List of dicts with chunk data and similarity scores.
+        """
+        # pgvector works directly with Python lists — no numpy needed
+        # Select distance alongside chunks to avoid re-computing per row
+        distance_col = DocumentChunk.embedding.cosine_distance(query_embedding).label(
+            "cosine_distance"
+        )
+
         stmt = (
-            select(DocumentChunk)
-            .order_by(DocumentChunk.embedding.l2_distance(query_vector))
+            select(DocumentChunk, distance_col)
+            .order_by(distance_col)
             .limit(top_k)
         )
 
         try:
-            chunks = self.db.execute(stmt).scalars().all()
+            rows = self.db.execute(stmt).all()
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
             raise RuntimeError(f"Vector search failed: {e}") from e
 
         results = []
-        for chunk in chunks:
-            # Calculate similarity score from L2 distance
-            # L2 distance of 0 means identical vectors (similarity 1.0)
-            # Higher distance means less similar
-            distance = chunk.embedding.l2_distance(query_vector)
-            # Convert distance to similarity score (0-1 range)
-            # This is a simple normalization; adjust as needed
-            similarity = 1.0 / (1.0 + float(distance)) if distance > 0 else 1.0
+        for chunk, cosine_distance in rows:
+            # Convert cosine distance to cosine similarity
+            # cosine_distance = 1 - cosine_similarity
+            # so cosine_similarity = 1 - cosine_distance
+            cosine_similarity = 1.0 - float(cosine_distance)
 
             # Apply minimum similarity filter
-            if similarity >= min_similarity:
-                results.append(chunk.to_dict(similarity_score=similarity))
+            if cosine_similarity >= min_similarity:
+                results.append(
+                    chunk.to_dict(similarity_score=round(cosine_similarity, 4))
+                )
 
         return results
 
