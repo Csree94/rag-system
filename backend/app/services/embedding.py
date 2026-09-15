@@ -1,7 +1,5 @@
 import logging
 from typing import Optional
-import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from app.core.config import get_settings
 
@@ -13,17 +11,7 @@ class EmbeddingService:
     """Service for generating embeddings from text."""
 
     def __init__(self):
-        self._model: Optional[SentenceTransformer] = None
-        self._embedding_dim: Optional[int] = None
-
-    def _load_model(self) -> SentenceTransformer:
-        """Load the sentence-transformers model if not already loaded."""
-        if self._model is None:
-            logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL_NAME}")
-            self._model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
-            self._embedding_dim = self._model.get_sentence_embedding_dimension()
-            logger.info(f"Model loaded. Embedding dimension: {self._embedding_dim}")
-        return self._model
+        self._embedding_dim: int = settings.EMBEDDING_DIMENSION
 
     def embed(self, text: str) -> list[float]:
         """
@@ -43,10 +31,8 @@ class EmbeddingService:
             raise ValueError("Cannot embed empty text")
 
         try:
-            if settings.use_sentence_transformers:
-                model = self._load_model()
-                embedding = model.encode(text, convert_to_numpy=True)
-                return embedding.tolist()
+            if settings.use_gemini:
+                return self._embed_gemini(text)
 
             elif settings.use_openrouter:
                 return self._embed_openrouter(text)
@@ -60,6 +46,23 @@ class EmbeddingService:
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")
             raise RuntimeError(f"Failed to generate embedding: {e}") from e
+
+    def _embed_gemini(self, text: str) -> list[float]:
+        """Generate embedding using Google Gemini Embedding 2 API."""
+        from google import genai
+
+        if not settings.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY not configured")
+
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+        response = client.models.embed_content(
+            model=settings.EMBEDDING_MODEL_NAME,
+            contents=text,
+            config={"output_dimensionality": self._embedding_dim},
+        )
+
+        return response.embeddings[0].values
 
     def _embed_openrouter(self, text: str) -> list[float]:
         """Generate embedding using OpenRouter API."""
@@ -100,7 +103,7 @@ class EmbeddingService:
         """
         import hashlib
 
-        vector_size = 384  # Match our pgvector dimension
+        vector_size = self._embedding_dim
         hash_values = []
 
         for i in range(vector_size):
@@ -116,9 +119,6 @@ class EmbeddingService:
     @property
     def embedding_dim(self) -> int:
         """Get the embedding dimension."""
-        if self._embedding_dim is None:
-            # Default for all-MiniLM-L6-v2
-            return 384
         return self._embedding_dim
 
 
