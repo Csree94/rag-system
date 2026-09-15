@@ -21,6 +21,11 @@ class Settings:
         self.EMBEDDING_DIMENSION: int = int(os.environ.get("EMBEDDING_DIMENSION", "768"))
         self.GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
 
+        # JWT Authentication
+        self.JWT_SECRET_KEY: str = os.environ.get("JWT_SECRET_KEY", "changeme-generate-a-real-secret")
+        self.JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")
+        self.ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+
         # OpenRouter (optional)
         self.OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
 

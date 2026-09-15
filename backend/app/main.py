@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import retrieval_router
+from app.api.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.database import engine, Base
 from app.models.chunk import DocumentChunk  # noqa: F401 - imported for table registration
@@ -82,6 +83,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth_router)
 app.include_router(retrieval_router)
 
 
