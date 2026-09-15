@@ -4,6 +4,7 @@ sqlalchemy==2.0.36
 psycopg[binary]==3.2.13
 pgvector==0.2.0
 python-dotenv==1.0.1
+python-multipart>=0.0.9
 httpx==0.28.1
 google-genai>=1.0.0
 python-jose[cryptography]>=3.3.0
