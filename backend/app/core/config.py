@@ -21,6 +21,16 @@ class Settings:
         self.EMBEDDING_DIMENSION: int = int(os.environ.get("EMBEDDING_DIMENSION", "768"))
         self.GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
 
+        # Gemini LLM (answer generation) - reuses GEMINI_API_KEY above
+        self.GEMINI_LLM_MODEL: str = os.environ.get("GEMINI_LLM_MODEL", "gemini-3.8-flash")
+        self.GEMINI_LLM_TEMPERATURE: float = float(os.environ.get("GEMINI_LLM_TEMPERATURE", "0.2"))
+        self.GEMINI_LLM_MAX_OUTPUT_TOKENS: int = int(os.environ.get("GEMINI_LLM_MAX_OUTPUT_TOKENS", "1024"))
+
+        # RAG pipeline defaults
+        self.RAG_TOP_K: int = int(os.environ.get("RAG_TOP_K", "5"))
+        self.RAG_MIN_SIMILARITY: float = float(os.environ.get("RAG_MIN_SIMILARITY", "0.3"))
+        self.RAG_MAX_CONTEXT_CHARS: int = int(os.environ.get("RAG_MAX_CONTEXT_CHARS", "12000"))
+
         # JWT Authentication
         self.JWT_SECRET_KEY: str = os.environ.get("JWT_SECRET_KEY", "changeme-generate-a-real-secret")
         self.JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import retrieval_router
+from app.api import chat_router, retrieval_router
 from app.api.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.database import engine, Base
@@ -63,11 +63,22 @@ This API provides the retrieval pipeline for the RAG system:
 
 The retrieval pipeline:
 1. Takes a user question
-2. Converts it to an embedding vector
+2. Converts it to an embedding vector (Gemini Embedding 2, 768 dimensions)
 3. Performs vector similarity search using pgvector
 4. Returns the most relevant document chunks
 
-**Note:** This is the basic retrieval pipeline. Gemini answer generation and WebSocket chat will be added in later milestones.
+## Chat API (end-to-end RAG)
+
+3. **POST /api/chat** - Ask a question and get a Gemini-generated answer grounded in the retrieved chunks
+
+The RAG pipeline:
+1. Embeds the question with Gemini Embedding 2
+2. Retrieves the Top-K chunks via pgvector cosine similarity
+3. Builds a context string from those chunks
+4. Asks Gemini to answer using only that context
+5. Returns the answer, the sources used, and whether relevant context was found
+
+All endpoints under `/api` require a JWT bearer token (see `POST /api/auth/login`).
     """,
     version="0.1.0",
     lifespan=lifespan,
@@ -85,6 +96,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(retrieval_router)
+app.include_router(chat_router)
 
 
 @app.get("/")
