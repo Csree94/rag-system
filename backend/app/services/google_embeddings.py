@@ -1,6 +1,10 @@
 """
 Google Embeddings Service
-Generates embeddings using Google's embedding API (text-embedding-004).
+Generates embeddings using Google's embedding API (gemini-embedding-001).
+
+Note: text-embedding-004 was retired from the Gemini API. The successor,
+gemini-embedding-001, defaults to 3072 dimensions, so we explicitly request
+output_dimensionality=768 to remain compatible with the pgvector column.
 """
 import logging
 from typing import Optional
@@ -20,7 +24,8 @@ class GoogleEmbeddingService:
     Service for generating embeddings using Google's embedding API.
 
     Uses the google-genai SDK to call Google's embedding model.
-    Default model: text-embedding-004 (768-dimensional vectors).
+    Default model: gemini-embedding-001 (requested at 768 dimensions via
+    output_dimensionality, so it stays compatible with existing vectors).
 
     Responsibilities:
     - Create embeddings for text chunks
@@ -46,7 +51,7 @@ class GoogleEmbeddingService:
         """
         Generate an embedding vector for the given text.
 
-        Uses Google's text-embedding-004 model by default.
+        Uses Google's gemini-embedding-001 model by default (768 dims).
 
         Args:
             text: The text to embed.
@@ -66,9 +71,12 @@ class GoogleEmbeddingService:
         try:
             client = self._get_client()
 
-            # Configure embedding request
+            # Configure embedding request; pin output dimension so the
+            # vector matches the pgvector column (768) instead of the
+            # model default (3072).
             embedding_config = types.EmbedContentConfig(
                 task_type=task_type,
+                output_dimensionality=settings.GOOGLE_EMBEDDING_DIMENSION,
             )
 
             response = client.models.embed_content(
@@ -131,6 +139,7 @@ class GoogleEmbeddingService:
 
             embedding_config = types.EmbedContentConfig(
                 task_type=task_type,
+                output_dimensionality=settings.GOOGLE_EMBEDDING_DIMENSION,
             )
 
             # Build contents from valid texts

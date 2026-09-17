@@ -17,8 +17,11 @@ class Settings:
         self.GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 
         # Google Embedding Model
-        self.GOOGLE_EMBEDDING_MODEL: str = os.getenv("GOOGLE_EMBEDDING_MODEL", "text-embedding-004")
-        self.GOOGLE_EMBEDDING_DIMENSION: int = int(os.getenv("GOOGLE_EMBEDDING_DIMENSION", "768"))  # text-embedding-004 produces 768-dim vectors
+        # NOTE: text-embedding-004 was retired from the Gemini API (404 errors).
+        # gemini-embedding-001 outputs 3072 dims by default; we request 768
+        # via output_dimensionality to stay compatible with the pgvector column.
+        self.GOOGLE_EMBEDDING_MODEL: str = os.getenv("GOOGLE_EMBEDDING_MODEL", "gemini-embedding-001")
+        self.GOOGLE_EMBEDDING_DIMENSION: int = int(os.getenv("GOOGLE_EMBEDDING_DIMENSION", "768"))
 
         # Google Gemini LLM Model
         self.GOOGLE_GEMINI_MODEL: str = os.getenv("GOOGLE_GEMINI_MODEL", "gemini-2.0-flash")
