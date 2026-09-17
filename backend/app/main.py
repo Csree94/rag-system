@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import chat_router, retrieval_router
+from app.api import chat_router, chat_ws_router, retrieval_router
 from app.api.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.database import engine, Base
@@ -78,7 +78,29 @@ The RAG pipeline:
 4. Asks Gemini to answer using only that context
 5. Returns the answer, the sources used, and whether relevant context was found
 
-All endpoints under `/api` require a JWT bearer token (see `POST /api/auth/login`).
+## Streaming Chat API (WebSocket)
+
+4. **WebSocket /api/chat/ws** - Stream a RAG answer progressively over WebSocket
+
+Same pipeline as POST /api/chat, but the Gemini answer is streamed token-by-token:
+
+1. Client sends a JSON ``start`` message with a JWT ``token`` and a ``question``
+2. Server authenticates using the existing JWT decode logic
+3. Server retrieves relevant chunks via the existing RetrievalService
+4. If no chunk clears the similarity threshold, server sends a ``context`` message
+   with ``found_context: false`` then a ``complete`` message (no Gemini call)
+5. Otherwise server sends a ``context`` message with the sources and then streams
+   ``answer_chunk`` messages until the answer is complete
+6. Server sends a final ``complete`` message
+
+Message types (all JSON):
+- ``start`` (client -> server)
+- ``context`` (server -> client): retrieved sources + found_context flag
+- ``answer_chunk`` (server -> client): next answer text fragment
+- ``complete`` (server -> client): streaming finished
+- ``error`` (server -> client): something went wrong
+
+All WebSocket messages require a valid JWT token (same tokens as POST /api/chat).
     """,
     version="0.1.0",
     lifespan=lifespan,
@@ -97,6 +119,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(retrieval_router)
 app.include_router(chat_router)
+app.include_router(chat_ws_router)
 
 
 @app.get("/")

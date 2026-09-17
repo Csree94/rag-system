@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from typing import Optional
+from typing import AsyncIterator, Generator, Optional
 
 from app.core.config import get_settings
 
@@ -43,6 +44,9 @@ class GenerationService:
     Kept separate from :class:`~app.services.embedding.EmbeddingService` so the
     embedding model (gemini-embedding-2) and the generation model can evolve
     independently. Reuses the existing GEMINI_API_KEY configuration.
+
+    Supports both non-streaming (used by POST /api/chat) and streaming (used by
+    the WebSocket RAG flow) generation.
     """
 
     def __init__(self) -> None:
@@ -80,8 +84,38 @@ class GenerationService:
             logger.error(f"Answer generation failed: {e}")
             raise RuntimeError(f"Failed to generate answer: {e}") from e
 
+    async def stream_answer(self, question: str, context: str) -> AsyncIterator[str]:
+        """
+        Stream an answer to ``question`` grounded in ``context``.
+
+        Yields answer text tokens progressively as they arrive from Gemini.
+
+        Args:
+            question: The user's question.
+            context: A pre-built context string of retrieved chunks.
+
+        Raises:
+            ValueError: If the question or context is empty.
+            RuntimeError: If the streaming call fails to start or yields no text.
+        """
+        if not question or not question.strip():
+            raise ValueError("Question cannot be empty")
+        if not context or not context.strip():
+            raise ValueError("Context cannot be empty")
+
+        prompt = build_rag_prompt(question=question, context=context)
+
+        try:
+            async for token in self._stream_gemini(prompt):
+                yield token
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Streaming answer generation failed: {e}")
+            raise RuntimeError(f"Failed to stream answer: {e}") from e
+
     def _generate_gemini(self, prompt: str) -> str:
-        """Generate a completion using the Gemini API."""
+        """Generate a completion using the Gemini API (non-streaming)."""
         from google import genai
 
         if not settings.GEMINI_API_KEY:
@@ -109,6 +143,38 @@ class GenerationService:
             raise RuntimeError("Gemini returned an empty answer")
 
         return answer.strip()
+
+    async def _stream_gemini(self, prompt: str) -> AsyncIterator[str]:
+        """Generate a completion using the Gemini API (streaming)."""
+        from google import genai
+
+        if not settings.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY not configured")
+
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+        response = client.models.generate_content_stream(
+            model=self._model,
+            contents=prompt,
+            config={
+                "system_instruction": SYSTEM_INSTRUCTION,
+                "temperature": self._temperature,
+                "max_output_tokens": self._max_output_tokens,
+            },
+        )
+
+        yielded_any = False
+        try:
+            for chunk in response:
+                if chunk.text:
+                    yielded_any = True
+                    yield chunk.text
+        except Exception as e:
+            logger.error(f"Gemini streaming error: {e}")
+            raise RuntimeError(f"Gemini streaming failed: {e}") from e
+
+        if not yielded_any:
+            raise RuntimeError("Gemini streaming returned no usable text")
 
     @property
     def model_name(self) -> str:
