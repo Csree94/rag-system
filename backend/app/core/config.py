@@ -26,6 +26,18 @@ class Settings:
         self.GEMINI_LLM_TEMPERATURE: float = float(os.environ.get("GEMINI_LLM_TEMPERATURE", "0.2"))
         self.GEMINI_LLM_MAX_OUTPUT_TOKENS: int = int(os.environ.get("GEMINI_LLM_MAX_OUTPUT_TOKENS", "1024"))
 
+        # NVIDIA Nemotron fallback LLM (generation ONLY; used when Gemini fails)
+        self.NVIDIA_API_KEY: str = os.environ.get("NVIDIA_API_KEY", "")
+        self.NVIDIA_LLM_MODEL: str = os.environ.get(
+            "NVIDIA_LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b"
+        )
+        self.NVIDIA_LLM_BASE_URL: str = os.environ.get(
+            "NVIDIA_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1"
+        )
+        self.LLM_FALLBACK_ENABLED: bool = os.environ.get(
+            "LLM_FALLBACK_ENABLED", "true"
+        ).strip().lower() in ("1", "true", "yes", "on")
+
         # RAG pipeline defaults
         self.RAG_TOP_K: int = int(os.environ.get("RAG_TOP_K", "5"))
         self.RAG_MIN_SIMILARITY: float = float(os.environ.get("RAG_MIN_SIMILARITY", "0.3"))

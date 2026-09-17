@@ -65,7 +65,6 @@ class RAGService:
         resolved_min_similarity = (
             settings.RAG_MIN_SIMILARITY if min_similarity is None else min_similarity
         )
-        model_name = self.generation_service.model_name
 
         # Steps 1-3: query embedding + pgvector cosine-similarity search (reused)
         chunks = self.retrieval_service.retrieve(
@@ -84,17 +83,23 @@ class RAGService:
                 "answer": NO_ANSWER_MESSAGE,
                 "sources": [],
                 "found_context": False,
-                "model": model_name,
+                # No LLM was called, so report the configured primary model.
+                "model": self.generation_service.model_name,
             }
 
         # Step 5: build the grounded context string
         context = self.build_context(chunks)
 
         # Steps 6-7: ask Gemini to answer using only the supplied context
+        # (falls back to NVIDIA Nemotron if the Gemini call fails).
         answer = self.generation_service.generate_answer(
             question=question,
             context=context,
         )
+
+        # Report the model that actually produced the answer (Gemini, or
+        # Nemotron when the fallback fired).
+        model_name = self.generation_service.last_model_used
 
         return {
             "answer": answer,
