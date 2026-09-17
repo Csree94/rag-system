@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import chat_router, chat_ws_router, retrieval_router
+from app.api import chat_router, chat_ws_router, documents_router, retrieval_router
 from app.api.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.database import engine, Base
@@ -54,12 +54,18 @@ app = FastAPI(
     description="""
 Retrieval-Augmented Generation system backend.
 
+## Documents API (ingestion)
+
+1. **POST /api/documents/upload** - Upload a PDF, DOCX, XLSX, TXT, MD or CSV file,
+   process it, and store chunks with embeddings
+2. **GET /api/documents** - List uploaded documents
+
 ## Retrieval API
 
 This API provides the retrieval pipeline for the RAG system:
 
-1. **POST /api/retrieve** - Submit a question and retrieve relevant document chunks
-2. **GET /api/retrieve/sample** - Get a sample question for testing
+3. **POST /api/retrieve** - Submit a question and retrieve relevant document chunks
+4. **GET /api/retrieve/sample** - Get a sample question for testing
 
 The retrieval pipeline:
 1. Takes a user question
@@ -69,7 +75,7 @@ The retrieval pipeline:
 
 ## Chat API (end-to-end RAG)
 
-3. **POST /api/chat** - Ask a question and get a Gemini-generated answer grounded in the retrieved chunks
+5. **POST /api/chat** - Ask a question and get a Gemini-generated answer grounded in the retrieved chunks
 
 The RAG pipeline:
 1. Embeds the question with Gemini Embedding 2
@@ -80,7 +86,7 @@ The RAG pipeline:
 
 ## Streaming Chat API (WebSocket)
 
-4. **WebSocket /api/chat/ws** - Stream a RAG answer progressively over WebSocket
+6. **WebSocket /api/chat/ws** - Stream a RAG answer progressively over WebSocket
 
 Same pipeline as POST /api/chat, but the Gemini answer is streamed token-by-token:
 
@@ -117,6 +123,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth_router)
+app.include_router(documents_router)
 app.include_router(retrieval_router)
 app.include_router(chat_router)
 app.include_router(chat_ws_router)

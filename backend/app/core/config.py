@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 from pathlib import Path
 from functools import lru_cache
@@ -16,6 +17,7 @@ class Settings:
         self.DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
 
         # Embedding
+        # Gemini Embedding 2 - the pgvector schema is tied to 768 dimensions.
         self.EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "gemini")
         self.EMBEDDING_MODEL_NAME: str = os.environ.get("EMBEDDING_MODEL_NAME", "gemini-embedding-2")
         self.EMBEDDING_DIMENSION: int = int(os.environ.get("EMBEDDING_DIMENSION", "768"))
@@ -50,6 +52,57 @@ class Settings:
 
         # OpenRouter (optional)
         self.OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
+
+        # Chunking (document ingestion pipeline)
+        self.CHUNK_SIZE: int = int(os.environ.get("CHUNK_SIZE", "1000"))
+        self.CHUNK_OVERLAP: int = int(os.environ.get("CHUNK_OVERLAP", "150"))
+
+        # Retrieval (ingestion-side alias for RAG_TOP_K)
+        self.TOP_K: int = int(os.environ.get("TOP_K", "5"))
+
+        # CORS (frontend/ingestion UI)
+        self.CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
+
+        # Application
+        self.APP_HOST: str = os.environ.get("APP_HOST", "0.0.0.0")
+        self.APP_PORT: int = int(os.environ.get("APP_PORT", "8000"))
+        self.DEBUG: bool = os.environ.get("DEBUG", "true").lower() in ("1", "true", "yes")
+
+    # ------------------------------------------------------------------
+    # Compatibility aliases (read-only properties, NOT env-backed config)
+    #
+    # Littu's document-ingestion modules (document_processor, google_embeddings,
+    # models/chunk) reference GOOGLE_* settings and google_api_configured.
+    # They are mapped onto OUR Gemini Embedding 2 / GEMINI_API_KEY settings so
+    # the ingestion pipeline produces 768-dim vectors consistent with the
+    # pgvector column and our retrieval pipeline. gemini-embedding-001 and
+    # GOOGLE_EMBEDDING_MODEL are intentionally NOT adopted.
+    # ------------------------------------------------------------------
+
+    @property
+    def GOOGLE_API_KEY(self) -> str:
+        """Alias for ingestion modules -> GEMINI_API_KEY."""
+        return self.GEMINI_API_KEY
+
+    @property
+    def GOOGLE_EMBEDDING_MODEL(self) -> str:
+        """Alias for ingestion modules -> our EMBEDDING_MODEL_NAME (Gemini Embedding 2)."""
+        return self.EMBEDDING_MODEL_NAME
+
+    @property
+    def GOOGLE_EMBEDDING_DIMENSION(self) -> int:
+        """Alias for ingestion modules -> our EMBEDDING_DIMENSION (768)."""
+        return self.EMBEDDING_DIMENSION
+
+    @property
+    def GOOGLE_GEMINI_MODEL(self) -> str:
+        """Alias for ingestion-side generation -> our GEMINI_LLM_MODEL."""
+        return self.GEMINI_LLM_MODEL
+
+    @property
+    def google_api_configured(self) -> bool:
+        """Check if the Gemini API key is configured (not a placeholder)."""
+        return bool(self.GEMINI_API_KEY and not self.GEMINI_API_KEY.startswith("your-"))
 
     @property
     def use_openrouter(self) -> bool:

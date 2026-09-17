@@ -1,7 +1,10 @@
 from sqlalchemy import String, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
-from app.core.database import Base, settings
+from app.core.database import Base
+from app.core.config import get_settings
+
+settings = get_settings()
 
 
 class DocumentChunk(Base):
@@ -13,7 +16,7 @@ class DocumentChunk(Base):
     document_id: Mapped[str] = mapped_column(String, index=True)
     chunk_index: Mapped[int] = mapped_column(Integer)
     content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[Vector] = mapped_column(Vector(settings.EMBEDDING_DIMENSION))  # Dimension from config
+    embedding: Mapped[Vector] = mapped_column(Vector(settings.GOOGLE_EMBEDDING_DIMENSION))  # Google text-embedding-004 = 768
 
     def to_dict(self, similarity_score: float | None = None) -> dict:
         """Convert chunk to dictionary for API response."""

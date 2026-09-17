@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Test that the FastAPI server starts and endpoints are accessible."""
+import sys
 import threading
 import time
 import urllib.request
@@ -7,6 +8,9 @@ import json
 
 from app.main import app
 import uvicorn
+
+print(f"Python: {sys.executable}")
+print(f"app.main file: {__import__('app.main', fromlist=['app']).__file__}")
 
 print("Starting FastAPI server...")
 
@@ -46,10 +50,21 @@ try:
             paths = list(data.get("paths", {}).keys())
             print(f"   ✓ OpenAPI schema accessible")
             print(f"   Registered paths: {paths}")
-            if "/api/retrieve" in paths:
-                print(f"   ✓ POST /api/retrieve endpoint registered")
-                methods = list(data["paths"]["/api/retrieve"].keys())
-                print(f"   Methods: {methods}")
+
+            # Check every expected endpoint, not just retrieval
+            expected = [
+                "/api/documents/upload",
+                "/api/documents",
+                "/api/retrieve",
+                "/api/retrieve/sample",
+                "/api/chat",
+            ]
+            for path in expected:
+                if path in paths:
+                    methods = [m.upper() for m in data["paths"][path].keys()]
+                    print(f"   ✓ {', '.join(methods)} {path} registered")
+                else:
+                    print(f"   ✗ {path} MISSING")
     except Exception as e:
         print(f"   ✗ OpenAPI schema error: {e}")
 
@@ -58,7 +73,12 @@ try:
     print("="*50)
     print("Command: uvicorn app.main:app --host 127.0.0.1 --port 8000")
     print("URL: http://127.0.0.1:8000")
-    print("Retrieval endpoint: POST /api/retrieve")
+    print("Endpoints:")
+    print("  - POST /api/documents/upload  (PDF upload + processing)")
+    print("  - GET  /api/documents         (list documents)")
+    print("  - POST /api/retrieve          (raw chunk retrieval)")
+    print("  - POST /api/chat              (RAG chat with Gemini)")
+    print("  - GET  /api/retrieve/sample   (sample question)")
     print("Swagger: http://127.0.0.1:8000/docs")
     print("="*50)
 
