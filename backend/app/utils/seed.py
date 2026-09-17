@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import get_settings
 from app.core.database import Base
 from app.models.chunk import DocumentChunk
-from app.services.embedding import get_embedding_service
+from app.services.google_embeddings import get_embedding_service
 
 logger = logging.getLogger(__name__)
 

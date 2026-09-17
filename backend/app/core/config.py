@@ -1,5 +1,6 @@
+import os
+
 from dotenv import load_dotenv
-from pathlib import Path
 from functools import lru_cache
 
 load_dotenv()
@@ -8,33 +9,44 @@ load_dotenv()
 class Settings:
     """Application settings loaded from environment variables."""
 
-    # Database
-    DATABASE_URL: str = ""
+    def __init__(self) -> None:
+        # Database
+        self.DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
-    # Embedding
-    EMBEDDING_MODEL: str = "sentence-transformers"
-    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
-    EMBEDDING_DIMENSION: int = 384  # Default for all-MiniLM-L6-v2
+        # Google AI API
+        self.GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 
-    # OpenRouter (optional)
-    OPENROUTER_API_KEY: str = ""
+        # Google Embedding Model
+        self.GOOGLE_EMBEDDING_MODEL: str = os.getenv("GOOGLE_EMBEDDING_MODEL", "text-embedding-004")
+        self.GOOGLE_EMBEDDING_DIMENSION: int = int(os.getenv("GOOGLE_EMBEDDING_DIMENSION", "768"))  # text-embedding-004 produces 768-dim vectors
 
-    @property
-    def use_openrouter(self) -> bool:
-        return self.EMBEDDING_MODEL == "openrouter" and self.OPENROUTER_API_KEY
+        # Google Gemini LLM Model
+        self.GOOGLE_GEMINI_MODEL: str = os.getenv("GOOGLE_GEMINI_MODEL", "gemini-2.0-flash")
 
-    @property
-    def use_sentence_transformers(self) -> bool:
-        return self.EMBEDDING_MODEL == "sentence-transformers"
+        # Chunking
+        self.CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))
+        self.CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
 
-    @property
-    def use_simple_hash(self) -> bool:
-        return self.EMBEDDING_MODEL == "simple-hash"
+        # Retrieval
+        self.TOP_K: int = int(os.getenv("TOP_K", "5"))
+
+        # CORS
+        self.CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+
+        # Application
+        self.APP_HOST: str = os.getenv("APP_HOST", "0.0.0.0")
+        self.APP_PORT: int = int(os.getenv("APP_PORT", "8000"))
+        self.DEBUG: bool = os.getenv("DEBUG", "true").lower() in ("1", "true", "yes")
 
     @property
     def is_database_configured(self) -> bool:
         """Check if database URL is properly configured (not placeholder)."""
         return bool(self.DATABASE_URL and not self.DATABASE_URL.startswith("postgresql://user:"))
+
+    @property
+    def google_api_configured(self) -> bool:
+        """Check if Google API key is configured."""
+        return bool(self.GOOGLE_API_KEY and not self.GOOGLE_API_KEY.startswith("AIzaSyPlaceHolder"))
 
 
 @lru_cache

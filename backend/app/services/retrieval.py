@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.chunk import DocumentChunk
-from app.services.embedding import get_embedding_service
+from app.services.google_embeddings import get_embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,8 @@ class RetrievalService:
             raise ValueError("Question cannot be empty")
 
         try:
-            # Step 1: Generate query embedding
-            query_embedding = self.embedding_service.embed(question)
+            # Step 1: Generate query embedding (query task type for questions)
+            query_embedding = self.embedding_service.embed(question, task_type="RETRIEVAL_QUERY")
             logger.debug(f"Generated query embedding with {len(query_embedding)} dimensions")
 
             # Step 2: Perform vector similarity search using pgvector
