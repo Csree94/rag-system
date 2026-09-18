@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './App.css'
 import Signup from './pages/Signup'
+import Login from './pages/Login'
 
 type IconName = 'chat' | 'doc' | 'quote' | 'lock' | 'check' | 'sparkle'
 
@@ -128,17 +129,26 @@ function HeroMock() {
 }
 
 function App() {
-  // TEMPORARY page switch for testing the Signup UI (no routing library yet).
-  // To revert: remove this state + early return + the three onClick handlers below.
-  const [view, setView] = useState<'home' | 'signup'>('home')
+  // TEMPORARY page switch for testing the Signup/Login UI (no routing library yet).
+  // To revert: remove this state + early returns + the onClick handlers below.
+  const [view, setView] = useState<'home' | 'signup' | 'login'>('home')
 
   if (view === 'signup') {
     return <Signup onBack={() => setView('home')} />
   }
 
+  if (view === 'login') {
+    return <Login onBack={() => setView('home')} onGoToSignup={() => setView('signup')} />
+  }
+
   const goToSignup = (e: { preventDefault: () => void }) => {
     e.preventDefault()
     setView('signup')
+  }
+
+  const goToLogin = (e: { preventDefault: () => void }) => {
+    e.preventDefault()
+    setView('login')
   }
 
   return (
@@ -160,7 +170,7 @@ function App() {
           </nav>
 
           <div className="header-actions">
-            <a href="#" className="btn btn-ghost">
+            <a href="#" className="btn btn-ghost" onClick={goToLogin}>
               Log In
             </a>
             <a href="#" className="btn btn-primary" onClick={goToSignup}>
@@ -193,7 +203,7 @@ function App() {
                 <a href="#" className="btn btn-primary btn-lg" onClick={goToSignup}>
                   Get Started
                 </a>
-                <a href="#" className="btn btn-outline btn-lg">
+                <a href="#" className="btn btn-outline btn-lg" onClick={goToLogin}>
                   Log In
                 </a>
               </div>

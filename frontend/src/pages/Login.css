@@ -1,0 +1,41 @@
+/* ============================================
+   Login page — login-specific styles only.
+   The split-panel layout, form fields, password
+   toggle, and banner styles are shared with Signup
+   (defined in Signup.css: .signup-page-ish classes
+   like .signup-right, .signup-card, .form-field,
+   .password-wrap, .toggle-password, .field-error).
+   Both stylesheets are always bundled together, so
+   reuse is safe and avoids duplication.
+   ============================================ */
+
+/* ---------- Layout ---------- */
+
+.login-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  min-height: 100vh;
+}
+
+.login-left {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 40px 40px;
+  color: #ede9fe;
+  background:
+    radial-gradient(640px 320px at 20% 0%, rgba(255, 255, 255, 0.12), transparent 60%),
+    linear-gradient(150deg, #6d28d9 0%, #4c1d95 100%);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 880px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+
+  .login-left {
+    padding: 20px 20px 32px;
+  }
+}
