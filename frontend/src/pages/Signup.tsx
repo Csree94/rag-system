@@ -1,20 +1,14 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, Check } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { ApiError } from '../services/api'
 import './Signup.css'
 
 /**
- * Signup page — connected to the backend registration API.
- *
- * POST /api/auth/register with { username, email, password }.
- * Returns 201 with UserResponse { id, username, email, is_active, created_at }.
- * 409 → username/email already registered · 422 → validation error · network → friendly message.
- * Registration does NOT return a JWT, so nothing is stored and the user proceeds to Log In.
- *
- * Validation rules (client-side only, mirrors the backend contract):
- * - Username: required, 3–50 characters
- * - Email: required, basic format check
- * - Password: required, 8–128 characters
- * - Confirm password: required, must match password
+ * Signup page — connected to the backend registration API via the shared
+ * auth context. After registering we log the user in and go to the dashboard.
  */
 
 type FieldName = 'username' | 'email' | 'password' | 'confirmPassword'
@@ -29,49 +23,7 @@ interface FormState {
 type FormErrors = Partial<Record<FieldName, string>>
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 const FIELD_NAMES: FieldName[] = ['username', 'email', 'password', 'confirmPassword']
-
-const REGISTER_URL = 'http://localhost:8001/api/auth/register'
-
-/** Shown after a successful 201 response. */
-interface RegisteredUser {
-  id: number
-  username: string
-  email: string
-}
-
-/**
- * Extract a user-friendly message from a failed registration response.
- * Mirrors the backend contract: FastAPI error bodies are { detail: string }
- * for 409 and { detail: Array<{ loc, msg, type }> } for 422.
- */
-async function toErrorMessage(res: Response): Promise<string> {
-  let body: unknown = null
-  try {
-    body = await res.json()
-  } catch {
-    // Non-JSON body — fall through to generic messages below.
-  }
-
-  const detail = (body as { detail?: unknown } | null)?.detail
-
-  if (res.status === 409 && typeof detail === 'string') {
-    // Backend sends "Username already registered" / "Email already registered".
-    return detail
-  }
-  if (res.status === 422 && Array.isArray(detail)) {
-    const first = detail[0] as { msg?: string } | undefined
-    if (first?.msg) {
-      // FastAPI messages read like "Value error, ..."; trim to the useful part.
-      const text = first.msg.replace(/^Value error,?\s*/i, '')
-      return `Validation error: ${text}.`
-    }
-    return 'Validation error: please check your details and try again.'
-  }
-  if (typeof detail === 'string') return detail
-  return 'Something went wrong. Please try again.'
-}
 
 function validateField(name: FieldName, form: FormState): string | undefined {
   switch (name) {
@@ -111,64 +63,13 @@ function validateAll(form: FormState): FormErrors {
   return errors
 }
 
-/** Shared small SVGs for this page. */
-function EyeIcon({ off }: { off?: boolean }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-      <circle cx="12" cy="12" r="3" />
-      {off && <path d="M3 3l18 18" />}
-    </svg>
-  )
-}
-
-function SparkleIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
-    </svg>
-  )
-}
-
 function CheckIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  )
+  return <Check size={15} strokeWidth={2.2} aria-hidden="true" />
 }
 
-export default function Signup({ onBack }: { onBack: () => void }) {
+export default function Signup() {
+  const { registerAndLogin } = useAuth()
+  const navigate = useNavigate()
   const [form, setForm] = useState<FormState>({
     username: '',
     email: '',
@@ -181,23 +82,17 @@ export default function Signup({ onBack }: { onBack: () => void }) {
   const [showConfirm, setShowConfirm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [registeredUser, setRegisteredUser] = useState<RegisteredUser | null>(null)
 
   const setField = (name: FieldName, value: string) => {
     setForm((prev) => {
       const next = { ...prev, [name]: value }
-      // Re-validate fields the user has already interacted with, so e.g.
-      // "Passwords do not match" clears itself once the user fixes them.
       setErrors((prevErrors) => {
         const nextErrors = { ...prevErrors }
         for (const key of FIELD_NAMES) {
           if (!touched[key]) continue
           const msg = validateField(key, next)
-          if (msg) {
-            nextErrors[key] = msg
-          } else {
-            delete nextErrors[key]
-          }
+          if (msg) nextErrors[key] = msg
+          else delete nextErrors[key]
         }
         return nextErrors
       })
@@ -217,48 +112,34 @@ export default function Signup({ onBack }: { onBack: () => void }) {
 
     const nextErrors = validateAll(form)
     setErrors(nextErrors)
-    setTouched({ username: true, email: true, password: true, confirmPassword: true })
+    setTouched(Object.fromEntries(FIELD_NAMES.map((n) => [n, true])))
     if (Object.keys(nextErrors).length > 0) return
 
     setSubmitting(true)
     setSubmitError(null)
 
     try {
-      const res = await fetch(REGISTER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: form.username.trim(),
-          email: form.email.trim(),
-          password: form.password,
-        }),
-      })
-
-      if (!res.ok) {
-        throw new Error(await toErrorMessage(res))
-      }
-
-      const user = (await res.json()) as RegisteredUser
-      setRegisteredUser(user)
+      await registerAndLogin(form.username.trim(), form.email.trim(), form.password)
+      navigate('/dashboard', { replace: true })
     } catch (err) {
-      // fetch() rejects on network failure / CORS / server unreachable.
       setSubmitError(
-        err instanceof TypeError
-          ? 'Unable to connect to the server. Please make sure the backend is running and try again.'
-          : err instanceof Error
+        err instanceof ApiError
+          ? err.status === 409
             ? err.message
-            : 'Something went wrong. Please try again.',
+            : err.message
+          : 'Something went wrong. Please try again.',
       )
     } finally {
       setSubmitting(false)
+      setForm((prev) => ({ ...prev, password: '', confirmPassword: '' }))
     }
   }
 
   return (
     <div className="signup-page">
-      {/* ---------- Left panel: brand + value prop ---------- */}
+      {/* ---------- Left panel ---------- */}
       <aside className="signup-left">
-        <button type="button" className="signup-back" onClick={onBack}>
+        <Link to="/" className="signup-back">
           <svg
             width="16"
             height="16"
@@ -273,13 +154,13 @@ export default function Signup({ onBack }: { onBack: () => void }) {
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Back to home
-        </button>
+        </Link>
 
         <div className="signup-left-body">
           <h2>Chat with your documents using AI</h2>
           <p>
-            Upload PDFs, reports, and notes, then ask questions in plain
-            language. Every answer is grounded in your own content.
+            Upload PDFs, reports, and notes, then ask questions in plain language. Every answer is
+            grounded in your own content.
           </p>
           <ul className="signup-perks">
             <li>
@@ -292,7 +173,7 @@ export default function Signup({ onBack }: { onBack: () => void }) {
               <span className="signup-perk-icon" aria-hidden="true">
                 <CheckIcon />
               </span>
-              PDF, DOCX, and plain-text support
+              PDF, DOCX, XLSX and plain-text support
             </li>
             <li>
               <span className="signup-perk-icon" aria-hidden="true">
@@ -304,39 +185,18 @@ export default function Signup({ onBack }: { onBack: () => void }) {
         </div>
       </aside>
 
-      {/* ---------- Right panel: form card ---------- */}
+      {/* ---------- Right panel ---------- */}
       <main className="signup-right">
         <div className="signup-card">
           <div className="signup-logo">
             <span className="logo-mark" aria-hidden="true">
-              <SparkleIcon />
+              ✦
             </span>
-            <span className="logo-text">RAG System</span>
+            <span className="logo-text">Notebook AI</span>
           </div>
 
-          {registeredUser ? (
-            <div className="signup-success" role="status">
-              <span className="signup-success-icon" aria-hidden="true">
-                <CheckIcon />
-              </span>
-              <h1>Account created!</h1>
-              <p className="signup-success-text">
-                Welcome, <strong>{registeredUser.username}</strong> — your account is ready.
-              </p>
-              <p className="signup-success-hint">
-                Registration doesn&apos;t sign you in yet. Continue to log in with your new
-                credentials.
-              </p>
-              <a href="#" className="btn btn-primary btn-lg signup-success-btn">
-                Proceed to Log In
-              </a>
-            </div>
-          ) : (
-            <>
           <h1>Create your account</h1>
-          <p className="signup-subtitle">
-            Start chatting with your documents in minutes.
-          </p>
+          <p className="signup-subtitle">Start chatting with your documents in minutes.</p>
 
           {submitError && (
             <div className="form-banner form-banner-error" role="alert">
@@ -412,7 +272,7 @@ export default function Signup({ onBack }: { onBack: () => void }) {
                   aria-pressed={showPassword}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  <EyeIcon off={showPassword} />
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {errors.password && (
@@ -445,7 +305,7 @@ export default function Signup({ onBack }: { onBack: () => void }) {
                   aria-pressed={showConfirm}
                   aria-label={showConfirm ? 'Hide confirm password' : 'Show confirm password'}
                 >
-                  <EyeIcon off={showConfirm} />
+                  {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {errors.confirmPassword && (
@@ -466,11 +326,9 @@ export default function Signup({ onBack }: { onBack: () => void }) {
               )}
             </button>
           </form>
-            </>
-          )}
 
           <p className="signup-footer-link">
-            Already have an account? <a href="#">Log in</a>
+            Already have an account? <Link to="/login">Log in</Link>
           </p>
         </div>
       </main>

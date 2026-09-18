@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.chunk import DocumentChunk
+from app.models.notebook import DocumentMeta, Notebook
+from app.services.auth import get_current_user
 from app.services.document_processor import get_document_processor
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,7 @@ async def upload_document(
     file: UploadFile = File(..., description="Document file to process (PDF, DOCX, XLSX, TXT, MD, CSV)"),
     notebook_id: str = Form(default="default"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ) -> UploadResponse:
     """
     Upload a document, process it through the pipeline, and store the chunks.
@@ -150,6 +153,53 @@ async def upload_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Processing succeeded but storing chunks failed: {str(e)}",
         )
+
+    # --- Persist document metadata for the dashboard ---
+
+    try:
+        # Resolve notebook: numeric id => owned notebook, otherwise the user's
+        # default notebook (created on first upload) keeps legacy behaviour.
+        notebook: Notebook | None = None
+        if notebook_id.isdigit():
+            notebook = (
+                db.query(Notebook)
+                .filter(Notebook.id == int(notebook_id), Notebook.user_id == current_user.id)
+                .first()
+            )
+        if notebook is None:
+            notebook = (
+                db.query(Notebook)
+                .filter(Notebook.user_id == current_user.id)
+                .order_by(Notebook.created_at.asc())
+                .first()
+            )
+        if notebook is None:
+            notebook = Notebook(
+                user_id=current_user.id,
+                name="My Notebook",
+                description="Created automatically from your first upload.",
+            )
+            db.add(notebook)
+            db.flush()
+
+        db.add(
+            DocumentMeta(
+                notebook_id=notebook.id,
+                document_uuid=result["document_id"],
+                filename=result["filename"],
+                file_type=result["file_type"],
+                size_bytes=len(contents),
+                page_count=result["page_count"],
+                chunk_count=result["chunk_count"],
+                status="ready",
+            )
+        )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        # Metadata is a convenience layer; chunks are already stored, so do
+        # not fail the upload if metadata persistence hits a problem.
+        logger.warning(f"Document metadata persistence failed for {result['document_id']}: {e}")
 
     # --- Response ---
 

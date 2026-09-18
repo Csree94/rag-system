@@ -1,113 +1,144 @@
-:root {
-  /* Colors — light theme with indigo/purple accent */
-  --bg: #ffffff;
-  --bg-soft: #f7f7fb;
-  --bg-card: #ffffff;
-  --text: #4b4658;
-  --text-strong: #16131f;
-  --border: #e6e4ee;
-  --border-strong: #d8d5e4;
+@import 'tailwindcss';
 
-  --accent: #6d28d9;
-  --accent-strong: #5b21b6;
-  --accent-soft: #f1ebfe;
-  --accent-border: rgba(109, 40, 217, 0.35);
+/* ==========================================================================
+   Notebook AI design system — warm light theme
+   Cream background · White cards · Lavender AI accents · Coral actions
+   Mint success · Yellow highlights · Stone text
+   ========================================================================== */
 
-  --code-bg: #f3f1fa;
+@theme {
+  /* Base surfaces */
+  --color-cream: #faf8f5;
+  --color-sidebar: #f3ede7;
+  --color-card: #ffffff;
 
-  --shadow-sm: 0 1px 2px rgba(22, 19, 31, 0.05);
-  --shadow-md: 0 8px 24px rgba(22, 19, 31, 0.07);
-  --shadow-lg: 0 18px 44px rgba(22, 19, 31, 0.12);
+  /* Brand */
+  --color-lavender: #8b5cf6;
+  --color-lavender-soft: #f1ebfe;
+  --color-lavender-deep: #7c3aed;
+  --color-coral: #f97360;
+  --color-coral-soft: #feece9;
+  --color-coral-deep: #ea5a46;
+  --color-sun: #f4b942;
+  --color-sun-soft: #fdf3dd;
+  --color-mint: #45b97c;
+  --color-mint-soft: #e6f6ec;
+
+  /* Text */
+  --color-ink: #292524;
+  --color-muted: #78716c;
+  --color-line: #e7e0da;
 
   /* Typography */
-  --sans: 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  --font-sans: 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
-  font-family: var(--sans);
-  font-size: 16px;
-  line-height: 1.6;
-  color-scheme: light;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Motion */
+  --ease-snappy: cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
-* {
-  box-sizing: border-box;
-}
-
+/* Reset only what Tailwind's preflight doesn't already cover for legacy pages */
 html,
 body {
   margin: 0;
   padding: 0;
+  min-height: 100vh;
 }
 
 body {
-  min-height: 100vh;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-#root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ---------- Typography ---------- */
-
-h1,
-h2,
-h3,
-h4 {
-  font-family: var(--sans);
-  color: var(--text-strong);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-  margin: 0;
-}
-
-p {
-  margin: 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-button {
-  font-family: inherit;
-}
-
-code {
-  font-family: var(--mono);
-  font-size: 0.9em;
-  background: var(--code-bg);
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: var(--text-strong);
-}
-
-/* ---------- Shared utilities ---------- */
-
-.container {
-  width: 100%;
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-@media (max-width: 640px) {
-  .container {
-    padding: 0 20px;
+/* Shared app-level keyframes */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+@keyframes thinking-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.anim-fade-up {
+  animation: fade-up 0.3s var(--ease-snappy) both;
+}
+
+.anim-fade-in {
+  animation: fade-in 0.25s ease both;
+}
+
+.anim-pop-in {
+  animation: pop-in 0.18s var(--ease-snappy) both;
+}
+
+/* Skeleton shimmer block */
+.skeleton {
+  background: linear-gradient(90deg, #efe9e3 25%, #f7f2ed 50%, #efe9e3 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 10px;
+}
+
+/* Thinking dots (chat loading) */
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-lavender);
+  animation: thinking-bounce 1.2s infinite ease-in-out;
+}
+
+/* Focus visibility for keyboard users */
+:focus-visible {
+  outline: 2px solid var(--color-lavender);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
