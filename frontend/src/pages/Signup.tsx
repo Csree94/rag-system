@@ -168,7 +168,14 @@ function CheckIcon() {
   )
 }
 
-export default function Signup({ onBack }: { onBack: () => void }) {
+export default function Signup({
+  onBack,
+  onGoToLogin,
+}: {
+  onBack: () => void
+  /** Navigate to the Login page (optional — App passes the view switch). */
+  onGoToLogin?: () => void
+}) {
   const [form, setForm] = useState<FormState>({
     username: '',
     email: '',
@@ -327,7 +334,14 @@ export default function Signup({ onBack }: { onBack: () => void }) {
                 Registration doesn&apos;t sign you in yet. Continue to log in with your new
                 credentials.
               </p>
-              <a href="#" className="btn btn-primary btn-lg signup-success-btn">
+              <a
+                href="#"
+                className="btn btn-primary btn-lg signup-success-btn"
+                onClick={(e) => {
+                  e.preventDefault()
+                  onGoToLogin?.()
+                }}
+              >
                 Proceed to Log In
               </a>
             </div>
@@ -470,7 +484,16 @@ export default function Signup({ onBack }: { onBack: () => void }) {
           )}
 
           <p className="signup-footer-link">
-            Already have an account? <a href="#">Log in</a>
+            Already have an account?{' '}
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault()
+                onGoToLogin?.()
+              }}
+            >
+              Log in
+            </a>
           </p>
         </div>
       </main>

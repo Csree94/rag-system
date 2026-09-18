@@ -152,9 +152,12 @@ function CheckIcon() {
 export default function Login({
   onBack,
   onGoToSignup,
+  onAuthenticated,
 }: {
   onBack: () => void
   onGoToSignup: () => void
+  /** Called with the username after login + /api/auth/me succeed. */
+  onAuthenticated: (username: string) => void
 }) {
   const [form, setForm] = useState<FormState>({ identifier: '', password: '' })
   const [errors, setErrors] = useState<FormErrors>({})
@@ -162,7 +165,6 @@ export default function Login({
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [meUser, setMeUser] = useState<MeUser | null>(null)
 
   const setField = (name: FieldName, value: string) => {
     setForm((prev) => {
@@ -246,9 +248,10 @@ export default function Login({
         )
       }
 
-      setMeUser(user)
       // Auth complete — clear the password from component state.
       setForm((prev) => ({ ...prev, password: '' }))
+      // Hand off to the RAG workspace (App.tsx switches the view).
+      onAuthenticated(user.username)
     } catch (err) {
       // fetch() rejects with a TypeError on network failure / CORS / server down.
       setSubmitError(
@@ -328,23 +331,7 @@ export default function Login({
           <h1>Welcome back</h1>
           <p className="signup-subtitle">Log in to continue to your documents.</p>
 
-          {meUser ? (
-            <div className="signup-success" role="status">
-              <span className="signup-success-icon" aria-hidden="true">
-                <CheckIcon />
-              </span>
-              <h1>You&apos;re logged in</h1>
-              <p className="signup-success-text">
-                Welcome back, <strong>{meUser.username}</strong>!
-              </p>
-              <p className="signup-success-hint">
-                Authentication is working. The RAG workspace will open from here in a
-                future update.
-              </p>
-              {/* TODO: link/transition to the NotebookLM-like RAG workspace instead of this placeholder. */}
-            </div>
-          ) : (
-            <>
+          <>
           {submitError && (
             <div className="form-banner form-banner-error" role="alert">
               {submitError}
@@ -418,8 +405,7 @@ export default function Login({
               )}
             </button>
           </form>
-            </>
-          )}
+          </>
 
           <p className="signup-footer-link">
             Don&apos;t have an account?{' '}

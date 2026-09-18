@@ -2,6 +2,7 @@ import { useState } from 'react'
 import './App.css'
 import Signup from './pages/Signup'
 import Login from './pages/Login'
+import Workspace from './pages/Workspace'
 
 type IconName = 'chat' | 'doc' | 'quote' | 'lock' | 'check' | 'sparkle'
 
@@ -131,14 +132,37 @@ function HeroMock() {
 function App() {
   // TEMPORARY page switch for testing the Signup/Login UI (no routing library yet).
   // To revert: remove this state + early returns + the onClick handlers below.
-  const [view, setView] = useState<'home' | 'signup' | 'login'>('home')
+  const [view, setView] = useState<'home' | 'signup' | 'login' | 'workspace'>('home')
+  // Username of the logged-in user, passed from Login (via /api/auth/me) to Workspace.
+  const [username, setUsername] = useState('')
 
   if (view === 'signup') {
-    return <Signup onBack={() => setView('home')} />
+    return <Signup onBack={() => setView('home')} onGoToLogin={() => setView('login')} />
+  }
+
+  if (view === 'workspace') {
+    return (
+      <Workspace
+        username={username}
+        onLogout={() => {
+          setUsername('')
+          setView('login')
+        }}
+      />
+    )
   }
 
   if (view === 'login') {
-    return <Login onBack={() => setView('home')} onGoToSignup={() => setView('signup')} />
+    return (
+      <Login
+        onBack={() => setView('home')}
+        onGoToSignup={() => setView('signup')}
+        onAuthenticated={(name) => {
+          setUsername(name)
+          setView('workspace')
+        }}
+      />
+    )
   }
 
   const goToSignup = (e: { preventDefault: () => void }) => {
