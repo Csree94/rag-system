@@ -112,10 +112,16 @@ All WebSocket messages require a valid JWT token (same tokens as POST /api/chat)
     lifespan=lifespan,
 )
 
-# Configure CORS - adjust origins for production
+# Configure CORS - explicit dev origins so the browser preflight always
+# succeeds; CORS_ORIGINS env var can override for production.
+_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+if "*" not in _cors_origins:
+    _cors_origins = list(
+        dict.fromkeys(_cors_origins + ["http://localhost:5173", "http://127.0.0.1:5173"])
+    )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
