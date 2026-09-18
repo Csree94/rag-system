@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import './App.css'
+import Signup from './pages/Signup'
 
 type IconName = 'chat' | 'doc' | 'quote' | 'lock' | 'check' | 'sparkle'
 
@@ -126,6 +128,19 @@ function HeroMock() {
 }
 
 function App() {
+  // TEMPORARY page switch for testing the Signup UI (no routing library yet).
+  // To revert: remove this state + early return + the three onClick handlers below.
+  const [view, setView] = useState<'home' | 'signup'>('home')
+
+  if (view === 'signup') {
+    return <Signup onBack={() => setView('home')} />
+  }
+
+  const goToSignup = (e: { preventDefault: () => void }) => {
+    e.preventDefault()
+    setView('signup')
+  }
+
   return (
     <div className="page">
       {/* ---------- Header ---------- */}
@@ -148,7 +163,7 @@ function App() {
             <a href="#" className="btn btn-ghost">
               Log In
             </a>
-            <a href="#" className="btn btn-primary">
+            <a href="#" className="btn btn-primary" onClick={goToSignup}>
               Get Started
             </a>
           </div>
@@ -175,7 +190,7 @@ function App() {
               </p>
 
               <div className="hero-ctas">
-                <a href="#" className="btn btn-primary btn-lg">
+                <a href="#" className="btn btn-primary btn-lg" onClick={goToSignup}>
                   Get Started
                 </a>
                 <a href="#" className="btn btn-outline btn-lg">
@@ -287,7 +302,7 @@ function App() {
                 Upload your first document and see grounded answers in seconds.
               </p>
               <div className="cta-actions">
-                <a href="#" className="btn btn-inverse btn-lg">
+                <a href="#" className="btn btn-inverse btn-lg" onClick={goToSignup}>
                   Get Started — It&apos;s Free
                 </a>
               </div>
