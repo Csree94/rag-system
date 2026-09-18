@@ -13,7 +13,7 @@ from app.core.database import Base
 config = context.config
 
 # Import all models for autogenerate support
-from app.models.chunk import DocumentChunk  # noqa: F401
+import app.models  # noqa: F401 - registers every model (chunk, user, notebooks, ...)
 
 # Set target_metadata for autogenerate
 target_metadata = Base.metadata
