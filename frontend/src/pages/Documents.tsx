@@ -100,13 +100,24 @@ export default function Documents() {
     void load()
   }, [load])
 
-  // Auto-open the picker via ?upload=1
+  // Open the picker via ?upload=1 — but only on a real user gesture
+  // (browsers block programmatic .click() without user activation).
   useEffect(() => {
-    if (searchParams.get('upload') === '1') {
-      requestAnimationFrame(() => fileRef.current?.click())
-      setSearchParams({}, { replace: true })
+    if (searchParams.get('upload') !== '1') return
+    setSearchParams({}, { replace: true })
+    // Respect the gesture window: click inside the first ~2s after navigation
+    const start = Date.now()
+    const tryOpen = () => {
+      if (Date.now() - start > 2000) return
+      try {
+        fileRef.current?.click()
+      } catch {
+        // User activation expired — user can click "Browse Files" manually
+      }
     }
-  }, [searchParams, setSearchParams])
+    tryOpen()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   // Advance the stage ticker while uploads run
   useEffect(() => {
@@ -275,7 +286,10 @@ export default function Documents() {
       ) : (
         <div className="space-y-3">
           {docs.map((d, i) => {
-            const Icon = fileIcon(d.file_type)
+            // Defensive defaults: tolerate documents persisted before the
+            // metadata backfill (missing file_type / size / counts).
+            const fileType = d.file_type ?? 'file'
+            const Icon = fileIcon(fileType)
             return (
               <div
                 key={d.id}
@@ -286,10 +300,10 @@ export default function Documents() {
                   <Icon size={19} aria-hidden="true" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-ink truncate">{d.filename}</p>
+                  <p className="text-sm font-medium text-ink truncate">{d.filename ?? d.document_uuid ?? 'Untitled document'}</p>
                   <p className="text-xs text-muted mt-0.5">
-                    {d.file_type.toUpperCase()} · {formatBytes(d.size_bytes)} · {d.page_count} page{d.page_count === 1 ? '' : 's'} ·{' '}
-                    {d.chunk_count} chunks · {new Date(d.created_at).toLocaleDateString()}
+                    {fileType.toUpperCase()} · {formatBytes(d.size_bytes ?? 0)} · {d.page_count ?? 0} page{(d.page_count ?? 0) === 1 ? '' : 's'} ·{' '}
+                    {d.chunk_count ?? 0} chunks · {d.created_at ? new Date(d.created_at).toLocaleDateString() : '—'}
                   </p>
                 </div>
                 <StatusBadge status={d.status} />
@@ -298,7 +312,7 @@ export default function Documents() {
                     type="button"
                     onClick={() => setMenuFor(menuFor === d.id ? null : d.id)}
                     className="p-2 rounded-lg text-muted hover:text-ink hover:bg-cream transition-colors"
-                    aria-label={`Options for ${d.filename}`}
+                    aria-label={`Options for ${d.filename ?? 'document'}`}
                     aria-expanded={menuFor === d.id}
                   >
                     <MoreVertical size={16} />

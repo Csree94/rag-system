@@ -216,11 +216,26 @@ async def upload_document(
 
 
 @router.get("")
-async def list_documents(db: Session = Depends(get_db)) -> dict:
+async def list_documents(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> dict:
     """
-    List all documents that have chunks stored in the database.
+    List the current user's documents with full metadata.
 
-    Returns one entry per document_id with chunk counts.
+    Note: the legacy chunk-count-only listing moved to
+    GET /api/documents/legacy (kept for backwards compatibility).
+    """
+    from app.api.notebooks import list_documents_meta
+
+    return list_documents_meta(db=db, current_user=current_user)
+
+
+@router.get("/legacy")
+async def list_documents_legacy(db: Session = Depends(get_db)) -> dict:
+    """
+    Legacy listing: one entry per document_id with chunk counts.
+    Kept for backwards compatibility with older tooling.
     """
     from sqlalchemy import func
 
