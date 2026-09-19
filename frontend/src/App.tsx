@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import Signup from './pages/Signup'
 import Login from './pages/Login'
 import Workspace from './pages/Workspace'
+
+const TOKEN_KEY = 'access_token'
+// Same backend origin Login.tsx uses (Workspace pins 127.0.0.1).
+const ME_URL = 'http://localhost:8002/api/auth/me'
 
 type IconName = 'chat' | 'doc' | 'quote' | 'lock' | 'check' | 'sparkle'
 
@@ -135,6 +139,54 @@ function App() {
   const [view, setView] = useState<'home' | 'signup' | 'login' | 'workspace'>('home')
   // Username of the logged-in user, passed from Login (via /api/auth/me) to Workspace.
   const [username, setUsername] = useState('')
+  // True while App checks a persisted token on mount (browser refresh).
+  // Prevents the homepage from flashing before Workspace renders.
+  const [restoring, setRestoring] = useState(true)
+
+  // Restore the session on refresh: a token in localStorage means the user may
+  // still be logged in. Verify it against /api/auth/me — on success reopen the
+  // Workspace; on failure drop the token and stay on the homepage.
+  useEffect(() => {
+    let cancelled = false
+
+    async function restoreSession() {
+      const token = localStorage.getItem(TOKEN_KEY)
+      if (!token) {
+        setRestoring(false)
+        return
+      }
+
+      try {
+        const res = await fetch(ME_URL, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (cancelled) return
+        if (res.ok) {
+          const user = (await res.json()) as { username: string }
+          setUsername(user.username)
+          setView('workspace')
+        } else {
+          // Expired/invalid token — same cleanup as a 401 in Workspace.
+          localStorage.removeItem(TOKEN_KEY)
+        }
+      } catch {
+        // Backend unreachable: keep the token but show the homepage, exactly
+        // like the pre-fix behavior; the next login/401 cycle refreshes it.
+      } finally {
+        if (!cancelled) setRestoring(false)
+      }
+    }
+
+    restoreSession()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Hold the previous view during restoration so the homepage never flashes.
+  if (restoring) {
+    return null
+  }
 
   if (view === 'signup') {
     return <Signup onBack={() => setView('home')} onGoToLogin={() => setView('login')} />

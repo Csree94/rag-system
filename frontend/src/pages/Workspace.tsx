@@ -11,9 +11,16 @@ import './Workspace.css'
  *
  * Layout:
  * - Header:    logo, username (from /api/auth/me), logout
- * - Sidebar:   "My Documents" list (original filename when known, chunk count,
+ * - Sidebar:   "Chats" list (previous sessions, New Chat, delete) +
+ *              "My Documents" list (original filename when known, chunk count,
  *              falling back to the document_id) + upload
- * - Main area: ask-a-question box, answer, sources with similarity scores
+ * - Main area: ask-a-question box, conversation (saved + live messages),
+ *              sources with similarity scores for the live answer
+ *
+ * Chat history: the first question of a new chat auto-creates a session
+ * (POST /api/chat/sessions); every WebSocket start frame then carries its
+ * session_id so the backend persists each completed Q&A. Opening a session
+ * loads its stored messages; deleting removes it server-side.
  *
  * On any 401 the token is removed and the user is sent back to the Login page
  * through App.tsx's temporary view switch (onLogout).
@@ -79,6 +86,52 @@ interface ChatResponse {
   found_context: boolean
   /** The WS protocol does not send a model field — only REST does. */
   model?: string
+}
+
+/** One session in GET /api/chat/sessions. */
+interface SessionSummary {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+  message_count: number
+}
+
+/** Shape of GET /api/chat/sessions. */
+interface SessionsResponse {
+  sessions: SessionSummary[]
+  total: number
+}
+
+/** One stored message in GET /api/chat/sessions/{id}. */
+interface SessionMessage {
+  id: number
+  role: string
+  content: string
+  created_at: string
+}
+
+/** Shape of GET /api/chat/sessions/{id}. */
+interface SessionDetailResponse {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+  messages: SessionMessage[]
+}
+
+/**
+ * One message in the on-screen conversation.
+ *
+ * Historical messages loaded from the backend carry content only (no
+ * sources); sources exist just for the live streaming answer.
+ */
+interface ChatMsg {
+  role: 'user' | 'assistant'
+  content: string
+  sources?: ChatSource[]
+  /** Mirrors the WS context frame; undefined when retrieval never answered. */
+  foundContext?: boolean
 }
 
 /**
@@ -238,6 +291,63 @@ function SendIcon() {
   )
 }
 
+function ChatIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M8 9h8M8 13h5" />
+    </svg>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  )
+}
+
 function LogoutIcon() {
   return (
     <svg
@@ -338,7 +448,24 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [askError, setAskError] = useState<string | null>(null)
+  // Live metadata for the answer currently streaming (sources, found_context).
+  // The conversation itself lives in `messages`; `chatResult` is kept only
+  // while a stream is in flight.
   const [chatResult, setChatResult] = useState<ChatResponse | null>(null)
+
+  // --- Chat history state (Stage 4) ---
+  const [sessions, setSessions] = useState<SessionSummary[] | null>(null)
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [sessionsBusy, setSessionsBusy] = useState(false)
+  // null = fresh unsaved chat; the session is auto-created on the first Ask.
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null)
+  const [activeSessionTitle, setActiveSessionTitle] = useState<string | null>(null)
+  const [messages, setMessages] = useState<ChatMsg[]>([])
+  const [loadingSession, setLoadingSession] = useState(false)
+  // Track the session a stream belongs to, so late frames from a cancelled
+  // stream can never be appended to a different conversation.
+  const streamSessionRef = useRef<number | null>(null)
+
   // Active streaming socket, so it can be closed on unmount.
   const wsRef = useRef<WebSocket | null>(null)
   // Prevents state updates after close/unmount during the async WS session.
@@ -348,6 +475,7 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
   useEffect(() => {
     return () => {
       wsSessionRef.current = false
+      streamSessionRef.current = null
       const ws = wsRef.current
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         ws.close()
@@ -393,6 +521,159 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
     }
   }, [token, handleUnauthorized])
 
+  /** GET /api/chat/sessions — refreshes the sidebar chats list. */
+  const refreshSessions = useCallback(async () => {
+    if (!token) {
+      handleUnauthorized()
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/chat/sessions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.status === 401) {
+        handleUnauthorized()
+        return
+      }
+      if (!res.ok) {
+        throw new Error(await toApiErrorMessage(res))
+      }
+      const data = (await res.json()) as SessionsResponse
+      setSessions(data.sessions)
+      setSessionsError(null)
+    } catch (err) {
+      setSessionsError(
+        err instanceof TypeError
+          ? 'Unable to connect to the server. Please make sure the backend is running.'
+          : err instanceof Error
+            ? err.message
+            : 'Could not load your chats.',
+      )
+    }
+  }, [token, handleUnauthorized])
+
+  /**
+   * Cancel any in-flight WS stream. Used when opening another session,
+   * starting a New Chat, deleting the active session, or on unmount paths.
+   * Late frames are ignored via wsSessionRef + streamSessionRef.
+   */
+  const cancelStream = useCallback(() => {
+    wsSessionRef.current = false
+    streamSessionRef.current = null
+    const ws = wsRef.current
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      try {
+        ws.close()
+      } catch {
+        // Already closing/closed.
+      }
+    }
+    if (wsRef.current === ws) {
+      wsRef.current = null
+    }
+    setAsking(false)
+  }, [])
+
+  /** Start a fresh unsaved chat: cancel any stream and clear the conversation. */
+  const handleNewChat = useCallback(() => {
+    cancelStream()
+    setActiveSessionId(null)
+    setActiveSessionTitle(null)
+    setMessages([])
+    setChatResult(null)
+    setAskError(null)
+    setQuestion('')
+  }, [cancelStream])
+
+  /** Open a previous session: load its stored messages into the main area. */
+  const handleOpenSession = useCallback(
+    async (sessionId: number) => {
+      if (!token) {
+        handleUnauthorized()
+        return
+      }
+      cancelStream()
+      setLoadingSession(true)
+      setAskError(null)
+      try {
+        const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.status === 401) {
+          handleUnauthorized()
+          return
+        }
+        if (!res.ok) {
+          throw new Error(await toApiErrorMessage(res))
+        }
+        const data = (await res.json()) as SessionDetailResponse
+        setActiveSessionId(data.id)
+        setActiveSessionTitle(data.title)
+        setMessages(
+          data.messages.map((m) => ({
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.content,
+          })),
+        )
+        setChatResult(null)
+      } catch (err) {
+        setAskError(
+          err instanceof TypeError
+            ? 'Unable to connect to the server. Please make sure the backend is running.'
+            : err instanceof Error
+              ? err.message
+              : 'Could not load the conversation.',
+        )
+      } finally {
+        setLoadingSession(false)
+      }
+    },
+    [token, handleUnauthorized, cancelStream],
+  )
+
+  /** Delete a session after confirmation; if active, reset to a fresh chat. */
+  const handleDeleteSession = useCallback(
+    async (sessionId: number) => {
+      if (!token) {
+        handleUnauthorized()
+        return
+      }
+      if (!window.confirm('Delete this chat? Its messages are removed permanently.')) {
+        return
+      }
+      setSessionsBusy(true)
+      try {
+        const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.status === 401) {
+          handleUnauthorized()
+          return
+        }
+        if (!res.ok) {
+          throw new Error(await toApiErrorMessage(res))
+        }
+        // Refresh the list; if the active session was deleted, start fresh.
+        await refreshSessions()
+        if (activeSessionId === sessionId) {
+          handleNewChat()
+        }
+      } catch (err) {
+        setAskError(
+          err instanceof TypeError
+            ? 'Unable to connect to the server. Please make sure the backend is running.'
+            : err instanceof Error
+              ? err.message
+              : 'Could not delete the chat.',
+        )
+      } finally {
+        setSessionsBusy(false)
+      }
+    },
+    [token, handleUnauthorized, refreshSessions, activeSessionId, handleNewChat],
+  )
+
   /** Load the profile and the document list once when the Workspace opens. */
   useEffect(() => {
     let cancelled = false
@@ -430,8 +711,10 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
         }
       }
 
-      // Step 2: load the document list for the sidebar.
-      if (!cancelled) await refreshDocuments()
+      // Step 2: load the document list and the chat sessions for the sidebar.
+      if (!cancelled) {
+        await Promise.all([refreshDocuments(), refreshSessions()])
+      }
     }
 
     loadInitialData()
@@ -510,11 +793,12 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
   /**
    * Ask a question via the streaming WebSocket /api/chat/ws.
    *
-   * Protocol (mirrors backend): one "start" frame carrying the JWT + question,
-   * then server frames: "context" (sources) → "answer_chunk"... → "complete".
-   * Errors surface through the same askError banner the REST flow used.
+   * Flow: if no session is active yet, one is auto-created first
+   * (POST /api/chat/sessions). The start frame then carries the session_id so
+   * the backend persists the completed Q&A. Frames append to the on-screen
+   * conversation; sources attach to the live assistant message only.
    */
-  const handleAsk = (e: FormEvent<HTMLFormElement>) => {
+  const handleAsk = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (asking) return
 
@@ -531,8 +815,48 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
 
     setAsking(true)
     setAskError(null)
+
+    // --- Auto-create the session on the first Ask of a new chat ---
+    let sessionId = activeSessionId
+    if (sessionId === null) {
+      try {
+        const res = await fetch(`${API_BASE}/api/chat/sessions`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.status === 401) {
+          handleUnauthorized()
+          return
+        }
+        if (!res.ok) {
+          throw new Error(await toApiErrorMessage(res))
+        }
+        const created = (await res.json()) as SessionSummary
+        sessionId = created.id
+        setActiveSessionId(created.id)
+        setActiveSessionTitle(created.title)
+        setSessions((prev) =>
+          prev ? [{ ...created, message_count: 0 }, ...prev] : [{ ...created, message_count: 0 }],
+        )
+      } catch (err) {
+        setAsking(false)
+        setAskError(
+          err instanceof TypeError
+            ? 'Unable to connect to the server. Please make sure the backend is running.'
+            : err instanceof Error
+              ? err.message
+              : 'Could not start a new chat.',
+        )
+        return
+      }
+    }
+
+    // --- Append the user message + an empty assistant placeholder ---
+    setMessages((prev) => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: '' }])
+    setQuestion('')
     setChatResult(null)
     wsSessionRef.current = true
+    streamSessionRef.current = sessionId
 
     let ws: WebSocket
     try {
@@ -547,7 +871,7 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
 
     ws.onopen = () => {
       if (!wsSessionRef.current) return
-      ws.send(JSON.stringify({ type: 'start', token, question: trimmed }))
+      ws.send(JSON.stringify({ type: 'start', token, question: trimmed, session_id: sessionId }))
     }
 
     ws.onmessage = (event: MessageEvent) => {
@@ -569,6 +893,17 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
             sources: msg.sources ?? [],
             found_context: msg.found_context,
           })
+          // Mark the live placeholder for the no-context rendering path.
+          if (msg.found_context === false) {
+            setMessages((prev) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (last && last.role === 'assistant' && last.content === '') {
+                next[next.length - 1] = { ...last, foundContext: false }
+              }
+              return next
+            })
+          }
           break
 
         case 'answer_chunk':
@@ -577,11 +912,21 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
             setChatResult((prev) =>
               prev ? { ...prev, answer: prev.answer + msg.chunk } : prev,
             )
+            setMessages((prev) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (last && last.role === 'assistant') {
+                next[next.length - 1] = { ...last, content: last.content + msg.chunk }
+              }
+              return next
+            })
           }
           break
 
         case 'complete':
           finishStreaming(ws)
+          // The backend owns the stored title/counts — refresh the sidebar.
+          refreshSessions()
           break
 
         case 'error': {
@@ -616,6 +961,7 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
   /** End the streaming session: reset loading state and close the socket. */
   function finishStreaming(ws: WebSocket) {
     wsSessionRef.current = false
+    streamSessionRef.current = null
     setAsking(false)
     try {
       ws.close()
@@ -655,6 +1001,81 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
       <div className="ws-body">
         {/* ---------- Sidebar: My Documents ---------- */}
         <aside className="ws-sidebar">
+          {/* ---------- Sidebar: Chats (history) ---------- */}
+          <div className="ws-chats-head">
+            <h2>Chats</h2>
+            <button
+              type="button"
+              className="btn btn-outline ws-new-chat-btn"
+              onClick={handleNewChat}
+              disabled={asking || loadingSession}
+            >
+              <PlusIcon />
+              New Chat
+            </button>
+          </div>
+
+          {sessionsError && (
+            <div className="ws-chats-status ws-chats-error" role="alert">
+              <AlertIcon />
+              <span>{sessionsError}</span>
+            </div>
+          )}
+
+          <ul className="ws-chat-list">
+            {sessions === null && !sessionsError && (
+              <li className="ws-chat-list-empty">
+                <SpinnerIcon />
+                Loading chats…
+              </li>
+            )}
+
+            {sessions !== null && sessions.length === 0 && !sessionsError && (
+              <li className="ws-chat-list-empty">
+                <ChatIcon />
+                No chats yet. Ask your first question to start one.
+              </li>
+            )}
+
+            {sessions !== null &&
+              sessions.map((session) => (
+                <li
+                  key={session.id}
+                  className={`ws-chat-item${session.id === activeSessionId ? ' ws-chat-item-active' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="ws-chat-open"
+                    onClick={() => handleOpenSession(session.id)}
+                    disabled={loadingSession}
+                    title={session.title}
+                  >
+                    <span className="ws-chat-icon" aria-hidden="true">
+                      <ChatIcon />
+                    </span>
+                    <span className="ws-chat-info">
+                      <span className="ws-chat-title">{session.title}</span>
+                      <span className="ws-chat-meta">
+                        {session.message_count}{' '}
+                        {session.message_count === 1 ? 'message' : 'messages'}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ws-chat-delete"
+                    onClick={() => handleDeleteSession(session.id)}
+                    disabled={sessionsBusy}
+                    aria-label={`Delete chat: ${session.title}`}
+                    title="Delete chat"
+                  >
+                    <TrashIcon />
+                  </button>
+                </li>
+              ))}
+          </ul>
+
+          {/* ---------- Sidebar: My Documents ---------- */}
           <div className="ws-sidebar-head">
             <h2>My Documents</h2>
             <p className="ws-sidebar-count">
@@ -760,6 +1181,12 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
             with citations.
           </p>
 
+          {activeSessionTitle && (
+            <p className="ws-active-session" title={activeSessionTitle}>
+              Chat: {activeSessionTitle}
+            </p>
+          )}
+
           <form className="ws-ask-form" onSubmit={handleAsk}>
             <textarea
               className="ws-question"
@@ -798,70 +1225,110 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
             </div>
           )}
 
-          {/* ---------- Answer ---------- */}
-          {chatResult && (
-            <section className="ws-answer" aria-live="polite">
-              {chatResult.found_context ? (
-                <>
-                  <div className="ws-answer-head">
-                    <span className="ws-answer-badge" aria-hidden="true">
-                      <CheckIcon />
-                    </span>
-                    <h2>Answer</h2>
-                    {/* The WS protocol sends no model field — show it only when present. */}
-                    {chatResult.model && (
-                      <span className="ws-model">Model: {chatResult.model}</span>
+          {/* ---------- Loading a previous session ---------- */}
+          {loadingSession && (
+            <div className="ws-session-loading">
+              <SpinnerIcon />
+              Loading conversation…
+            </div>
+          )}
+
+          {/* ---------- Conversation ---------- */}
+          {!loadingSession && messages.length > 0 && (
+            <section className="ws-conversation" aria-live="polite">
+              {messages.map((msg, index) => {
+                const isLast = index === messages.length - 1
+                const isStreamingBubble =
+                  isLast && asking && msg.role === 'assistant'
+                // Sources exist only for the live answer (chatResult); the
+                // backend does not store citations with historical messages.
+                const liveSources = isLast && chatResult ? chatResult.sources : []
+
+                if (msg.role === 'user') {
+                  return (
+                    <div key={index} className="ws-msg ws-msg-user">
+                      <p className="ws-msg-text">{msg.content}</p>
+                    </div>
+                  )
+                }
+
+                return (
+                  <div key={index} className="ws-msg ws-msg-assistant">
+                    {msg.content === '' &&
+                      isStreamingBubble &&
+                      msg.foundContext === undefined && (
+                        <span className="ws-msg-streaming">
+                          <SpinnerIcon />
+                          Searching your documents…
+                        </span>
+                      )}
+
+                    {msg.content === '' && msg.foundContext === false && (
+                      /* RAG rule: no relevant context found — say so clearly. */
+                      <div className="ws-answer ws-answer-missing">
+                        <div className="ws-answer-head">
+                          <span className="ws-answer-badge ws-badge-missing" aria-hidden="true">
+                            <AlertIcon />
+                          </span>
+                          <h2>No relevant information found</h2>
+                        </div>
+                        <p className="ws-answer-text">
+                          The available documents do not contain information relevant to
+                          your question. Try rephrasing it, or upload a document that
+                          covers this topic.
+                        </p>
+                      </div>
+                    )}
+
+                    {msg.content !== '' && (
+                      <>
+                        <div className="ws-answer-head">
+                          <span className="ws-answer-badge" aria-hidden="true">
+                            <CheckIcon />
+                          </span>
+                          <h2>Answer</h2>
+                          {/* The WS protocol sends no model field — show it only when present. */}
+                          {isLast && chatResult?.model && (
+                            <span className="ws-model">Model: {chatResult.model}</span>
+                          )}
+                        </div>
+
+                        <p className="ws-answer-text">{msg.content}</p>
+
+                        {/* ---------- Sources / citations (live answer only) ---------- */}
+                        {liveSources.length > 0 && (
+                          <div className="ws-sources">
+                            <h3>Sources</h3>
+                            <ul className="ws-source-list">
+                              {liveSources.map((source) => (
+                                <li key={source.chunk_id} className="ws-source-item">
+                                  <div className="ws-source-meta">
+                                    <span className="ws-source-doc" title={source.document_id}>
+                                      {source.document_id}
+                                    </span>
+                                    <span className="ws-source-chunk">chunk {source.chunk_index}</span>
+                                    {source.similarity_score !== null && (
+                                      <span className="ws-source-score">
+                                        {Math.round(source.similarity_score * 100)}% match
+                                      </span>
+                                    )}
+                                  </div>
+                                  <blockquote className="ws-source-snippet">{source.snippet}</blockquote>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
-
-                  <p className="ws-answer-text">{chatResult.answer}</p>
-
-                  {/* ---------- Sources / citations ---------- */}
-                  {chatResult.sources.length > 0 && (
-                    <div className="ws-sources">
-                      <h3>Sources</h3>
-                      <ul className="ws-source-list">
-                        {chatResult.sources.map((source) => (
-                          <li key={source.chunk_id} className="ws-source-item">
-                            <div className="ws-source-meta">
-                              <span className="ws-source-doc" title={source.document_id}>
-                                {source.document_id}
-                              </span>
-                              <span className="ws-source-chunk">chunk {source.chunk_index}</span>
-                              {source.similarity_score !== null && (
-                                <span className="ws-source-score">
-                                  {Math.round(source.similarity_score * 100)}% match
-                                </span>
-                              )}
-                            </div>
-                            <blockquote className="ws-source-snippet">{source.snippet}</blockquote>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              ) : (
-                /* RAG rule: no relevant context found — say so clearly. */
-                <div className="ws-answer ws-answer-missing">
-                  <div className="ws-answer-head">
-                    <span className="ws-answer-badge ws-badge-missing" aria-hidden="true">
-                      <AlertIcon />
-                    </span>
-                    <h2>No relevant information found</h2>
-                  </div>
-                  <p className="ws-answer-text">
-                    The available documents do not contain information relevant to
-                    your question. Try rephrasing it, or upload a document that
-                    covers this topic.
-                  </p>
-                </div>
-              )}
+                )
+              })}
             </section>
           )}
 
           {/* ---------- Empty chat state ---------- */}
-          {!chatResult && !asking && !askError && (
+          {!loadingSession && messages.length === 0 && !asking && !askError && (
             <div className="ws-chat-empty">
               <span className="ws-chat-empty-icon" aria-hidden="true">
                 <SparkleIcon />
