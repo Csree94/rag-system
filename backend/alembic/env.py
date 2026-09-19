@@ -14,6 +14,8 @@ config = context.config
 
 # Import all models for autogenerate support
 from app.models.chunk import DocumentChunk  # noqa: F401
+from app.models.chat import ChatMessage, ChatSession  # noqa: F401
+from app.models.user import User  # noqa: F401 - registered via models/__init__, added here for clarity
 
 # Set target_metadata for autogenerate
 target_metadata = Base.metadata
