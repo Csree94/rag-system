@@ -20,6 +20,8 @@ import './Workspace.css'
  */
 
 const API_BASE = 'http://127.0.0.1:8002'
+// WebSocket endpoint for streaming question-answering (same backend, ws scheme).
+const WS_CHAT_URL = API_BASE.replace(/^http/, 'ws') + '/api/chat/ws'
 const TOKEN_KEY = 'access_token'
 const NOTEBOOK_ID = 'default'
 // localStorage key for the document_id → original filename map (see FilenameMap).
@@ -69,14 +71,45 @@ interface ChatSource {
   snippet: string
 }
 
-/** Shape of POST /api/chat. */
+/** Shape of the answer display state (from POST /api/chat or the WS flow). */
 interface ChatResponse {
   question: string
   answer: string
   sources: ChatSource[]
   found_context: boolean
-  model: string
+  /** The WS protocol does not send a model field — only REST does. */
+  model?: string
 }
+
+/**
+ * Server → client WebSocket messages from /api/chat/ws.
+ * Mirrors backend app/schemas/ws.py (context · answer_chunk · complete · error).
+ */
+interface WsContextMessage {
+  type: 'context'
+  found_context: boolean
+  sources: ChatSource[]
+}
+
+interface WsAnswerChunkMessage {
+  type: 'answer_chunk'
+  chunk: string
+}
+
+interface WsCompleteMessage {
+  type: 'complete'
+}
+
+interface WsErrorMessage {
+  type: 'error'
+  detail: string
+}
+
+type WsServerMessage =
+  | WsContextMessage
+  | WsAnswerChunkMessage
+  | WsCompleteMessage
+  | WsErrorMessage
 
 /**
  * Build a friendly error message from a failed fetch Response.
@@ -306,6 +339,22 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
   const [asking, setAsking] = useState(false)
   const [askError, setAskError] = useState<string | null>(null)
   const [chatResult, setChatResult] = useState<ChatResponse | null>(null)
+  // Active streaming socket, so it can be closed on unmount.
+  const wsRef = useRef<WebSocket | null>(null)
+  // Prevents state updates after close/unmount during the async WS session.
+  const wsSessionRef = useRef(false)
+
+  // Close an in-flight streaming socket when the Workspace unmounts.
+  useEffect(() => {
+    return () => {
+      wsSessionRef.current = false
+      const ws = wsRef.current
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close()
+      }
+      wsRef.current = null
+    }
+  }, [])
 
   /** Shared 401 handling: drop the token and return to Login. */
   const handleUnauthorized = useCallback(() => {
@@ -458,8 +507,14 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
     }
   }
 
-  /** POST /api/chat with the user's question. */
-  const handleAsk = async (e: FormEvent<HTMLFormElement>) => {
+  /**
+   * Ask a question via the streaming WebSocket /api/chat/ws.
+   *
+   * Protocol (mirrors backend): one "start" frame carrying the JWT + question,
+   * then server frames: "context" (sources) → "answer_chunk"... → "complete".
+   * Errors surface through the same askError banner the REST flow used.
+   */
+  const handleAsk = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (asking) return
 
@@ -477,37 +532,98 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
     setAsking(true)
     setAskError(null)
     setChatResult(null)
+    wsSessionRef.current = true
 
+    let ws: WebSocket
     try {
-      const res = await fetch(`${API_BASE}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ question: trimmed }),
-      })
-
-      if (res.status === 401) {
-        handleUnauthorized()
-        return
-      }
-      if (!res.ok) {
-        throw new Error(await toApiErrorMessage(res))
-      }
-
-      const data = (await res.json()) as ChatResponse
-      setChatResult(data)
-    } catch (err) {
-      setAskError(
-        err instanceof TypeError
-          ? 'Unable to connect to the server. Please make sure the backend is running.'
-          : err instanceof Error
-            ? err.message
-            : 'Something went wrong. Please try again.',
-      )
-    } finally {
+      ws = new WebSocket(WS_CHAT_URL)
+    } catch {
       setAsking(false)
+      wsSessionRef.current = false
+      setAskError('Unable to connect to the server. Please make sure the backend is running.')
+      return
+    }
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      if (!wsSessionRef.current) return
+      ws.send(JSON.stringify({ type: 'start', token, question: trimmed }))
+    }
+
+    ws.onmessage = (event: MessageEvent) => {
+      if (!wsSessionRef.current) return
+
+      let msg: WsServerMessage
+      try {
+        msg = JSON.parse(event.data) as WsServerMessage
+      } catch {
+        return // ignore malformed frames
+      }
+
+      switch (msg.type) {
+        case 'context':
+          // Open the answer section and show sources as soon as retrieval lands.
+          setChatResult({
+            question: trimmed,
+            answer: '',
+            sources: msg.sources ?? [],
+            found_context: msg.found_context,
+          })
+          break
+
+        case 'answer_chunk':
+          // Progressively append the streamed answer text.
+          if (msg.chunk) {
+            setChatResult((prev) =>
+              prev ? { ...prev, answer: prev.answer + msg.chunk } : prev,
+            )
+          }
+          break
+
+        case 'complete':
+          finishStreaming(ws)
+          break
+
+        case 'error': {
+          // Auth failures behave like the REST 401 path: drop token, return to Login.
+          if (msg.detail.startsWith('Authentication failed')) {
+            handleUnauthorized()
+            return
+          }
+          setAskError(msg.detail || 'Something went wrong. Please try again.')
+          finishStreaming(ws)
+          break
+        }
+      }
+    }
+
+    ws.onerror = () => {
+      if (!wsSessionRef.current) return
+      setAskError('Unable to connect to the server. Please make sure the backend is running.')
+      finishStreaming(ws)
+    }
+
+    ws.onclose = () => {
+      // If the server closed early (before complete/error), surface a friendly
+      // error; after a normal finish this is a no-op because the session flag
+      // and asking state were already reset by finishStreaming.
+      if (!wsSessionRef.current) return
+      setAskError('The connection to the server was closed before the answer finished.')
+      finishStreaming(ws)
+    }
+  }
+
+  /** End the streaming session: reset loading state and close the socket. */
+  function finishStreaming(ws: WebSocket) {
+    wsSessionRef.current = false
+    setAsking(false)
+    try {
+      ws.close()
+    } catch {
+      // Already closing/closed.
+    }
+    if (wsRef.current === ws) {
+      wsRef.current = null
     }
   }
 
@@ -692,7 +808,10 @@ export default function Workspace({ username, onLogout }: WorkspaceProps) {
                       <CheckIcon />
                     </span>
                     <h2>Answer</h2>
-                    <span className="ws-model">Model: {chatResult.model}</span>
+                    {/* The WS protocol sends no model field — show it only when present. */}
+                    {chatResult.model && (
+                      <span className="ws-model">Model: {chatResult.model}</span>
+                    )}
                   </div>
 
                   <p className="ws-answer-text">{chatResult.answer}</p>

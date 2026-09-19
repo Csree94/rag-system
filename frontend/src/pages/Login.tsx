@@ -19,8 +19,8 @@ import './Login.css'
 
 type FieldName = 'identifier' | 'password'
 
-const LOGIN_URL = 'http://localhost:8001/api/auth/login'
-const ME_URL = 'http://localhost:8001/api/auth/me'
+const LOGIN_URL = 'http://localhost:8002/api/auth/login'
+const ME_URL = 'http://localhost:8002/api/auth/me'
 const TOKEN_KEY = 'access_token'
 
 /** Shape of GET /api/auth/me's UserResponse. */

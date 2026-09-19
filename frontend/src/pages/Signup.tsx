@@ -32,7 +32,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const FIELD_NAMES: FieldName[] = ['username', 'email', 'password', 'confirmPassword']
 
-const REGISTER_URL = 'http://localhost:8001/api/auth/register'
+const REGISTER_URL = 'http://localhost:8002/api/auth/register'
 
 /** Shown after a successful 201 response. */
 interface RegisteredUser {
